@@ -10,51 +10,44 @@ defmodule Mix.Tasks.PreCommit do
     meaning that the command has failed), which will trigger the commit to stop,
     and print the error message to the terminal.
   """
-  @commands Application.get_env(:pre_commit, :commands) || []
-  @verbose Application.get_env(:pre_commit, :verbose) || false
 
-  def run(_) do
-    IO.puts("\e[95mPre-commit running...\e[0m")
+
+  def run([commands, verbose]) do
+    run_pre_checks([commands], verbose)
+  end
+
+ def run(_) do
+   commands = Application.get_env(:pre_commit, :commands) || []
+   verbose = Application.get_env(:pre_commit, :verbose) || false
+   run_pre_checks(commands, verbose)
+ end
+
+  defp run_pre_checks(commands, verbose) do
+    IO.puts "\e[95mPre-commit running...\e[0m"
     {_, 0} = System.cmd("git", String.split("stash push --keep-index --message pre_commit", " "))
+    IO.puts("\e[95mCommands to run: #{commands}...\e[0m")
+    commands
+    |> Enum.each(&run_cmds(&1, verbose))
 
-    @commands
-    |> Enum.each(&run_cmds/1)
-
-    System.cmd("git", String.split("stash pop", " "), stderr_to_stdout: true)
-    |> case do
-      {_, 0} ->
-        "\e[32mPre-commit passed!\e[0m"
-
-      {"No stash entries found.", 1} ->
-        "\e[32mPre-commit passed!\e[0m"
-
-      {error, _} ->
-        error
-    end
-    |> IO.puts()
-
+    {_, 0} = System.cmd("git", String.split("stash pop", " "))
+    IO.puts "\e[32mPre-commit passed!\e[0m"
     System.halt(0)
   end
 
-  defp run_cmds(cmd) do
-    into =
-      case @verbose do
-        true -> IO.stream(:stdio, :line)
-        _ -> ""
-      end
+
+  defp run_cmds(cmd, verbose) do
+    into = case verbose do
+      true -> IO.stream(:stdio, :line)
+      _    -> ""
+    end
 
     System.cmd("mix", String.split(cmd, " "), stderr_to_stdout: true, into: into)
     |> case do
       {_result, 0} ->
-        IO.puts("mix #{cmd} ran successfully.")
-
+        IO.puts "mix #{cmd} ran successfully."
       {result, _} ->
-        if !@verbose, do: IO.puts(result)
-
-        IO.puts(
-          "\e[31mPre-commit failed on `mix #{cmd}`.\e[0m \nCommit again with --no-verify to live dangerously and skip pre-commit."
-        )
-
+        if !verbose, do: IO.puts result
+        IO.puts "\e[31mPre-commit failed on `mix #{cmd}`.\e[0m \nCommit again with --no-verify to live dangerously and skip pre-commit."
         {_, 0} = System.cmd("git", String.split("stash pop", " "))
         System.halt(1)
     end
